@@ -1,202 +1,667 @@
-import time
 import random
-from urllib.parse import quote
-from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
+import string
+import sqlite3
 
-TOKEN = "8406194824:AAHqdcH6ap1zuQtFEAOE5P0XuCpk2lrmeWE"
-ADMIN_GROUP = "-1001234567890"
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
 
-state = {}
-users = {}
-used_test = set()
-report_count = {}
-trust_score = {}
-targets = {}
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes
+)
 
-CODES = {
-    "Devexi-test": "test",
-    "Deopi2nsA11": "month",
-    "Upojwj11": "year"
-}
 
-# ----------------------------
+# ==========================
+# CONFIG
+# ==========================
 
-def is_allowed(uid):
-    return uid in users and users[uid] > time.time()
+BOT_TOKEN = "8513193851:AAG_O27OOj3s3lRCruLvgXtA8qxrghscukw"
 
-def build_spambot_link(text):
-    return "https://t.me/spambot?start=" + quote(text)
+ADMIN_ID = 8478208834
 
-# --- Subscription Logic ---
+WALLET = "UQCDRS8uTO3iQV4MTpC9AkT0jBoy9MkOaq2DHUYjNyh7jxhS"
 
-def extend_expire(current_ts, code):
-    now = datetime.now()
-    base = datetime.fromtimestamp(current_ts) if current_ts and current_ts > time.time() else now
 
-    if code == "test":
-        return base + timedelta(days=1)
 
-    if code == "month":
-        try:
-            return base.replace(month=base.month + 1)
-        except:
-            return base + timedelta(days=30)
+# ==========================
+# DATABASE
+# ==========================
 
-    if code == "year":
-        try:
-            return base.replace(year=base.year + 1)
-        except:
-            return base + timedelta(days=365)
+db = sqlite3.connect(
+    "shop.db",
+    check_same_thread=False
+)
 
-# ----------------------------
+cursor = db.cursor()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
 
-    if not is_allowed(uid):
-        state[uid] = {"step": "code"}
-        await update.message.reply_text("🔐 لطفا کد اشتراک را ارسال کنید:")
-        return
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS orders(
 
-    await show_menu(update)
+id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-# ----------------------------
+user_id INTEGER,
 
-async def show_menu(update):
-    kb = [
-        [InlineKeyboardButton("🧊 Scam", callback_data="Scam")],
-        [InlineKeyboardButton("🧊 Impersonation", callback_data="Impersonation")],
-        [InlineKeyboardButton("🧊 NSFW", callback_data="NSFW")],
-        [InlineKeyboardButton("🧊 Terrorism", callback_data="Terrorism")],
-        [InlineKeyboardButton("🧊 Drugs", callback_data="Drugs")],
-        [InlineKeyboardButton("🧊 Spam", callback_data="Spam")],
-        [InlineKeyboardButton("🧊 Other", callback_data="Other")]
-    ]
+username TEXT,
 
-    await update.message.reply_text(
-        "🛡 Devex-i Report Center\n\nSelect violation:",
-        reply_markup=InlineKeyboardMarkup(kb)
+plan TEXT,
+
+price TEXT,
+
+port TEXT,
+
+status TEXT
+
+)
+""")
+
+
+db.commit()
+
+
+
+# ==========================
+# GENERATE PORT
+# ==========================
+
+def generate_port():
+
+    chars = (
+        string.ascii_letters +
+        string.digits
     )
 
-# ----------------------------
+    return "".join(
+        random.choice(chars)
+        for _ in range(6)
+    )
 
-async def choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+
+# ==========================
+# USER MENU
+# ==========================
+
+def plans_menu():
+
+    buttons = [
+
+        [
+            InlineKeyboardButton(
+                "💎 VIP 7 Days | 2 TON",
+                callback_data="plan7"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🔥 VIP 15 Days | 3.5 TON",
+                callback_data="plan15"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "⚡ VIP 30 Days | 5 TON",
+                callback_data="plan30"
+            )
+        ]
+
+    ]
+
+    return InlineKeyboardMarkup(buttons)
+
+
+
+# ==========================
+# START
+# ==========================
+
+async def start(
+    update:Update,
+    context:ContextTypes.DEFAULT_TYPE
+):
+
+    await update.message.reply_text(
+
+"""
+💎 <b>Premium Port Service</b>
+
+
+⚡ سرویس سریع و امن
+
+
+📦 پلن خود را انتخاب کنید:
+""",
+
+        parse_mode="HTML",
+
+        reply_markup=plans_menu()
+
+    )
+
+
+
+# ==========================
+# PLAN SELECT
+# ==========================
+
+async def select_plan(
+    update:Update,
+    context:ContextTypes.DEFAULT_TYPE
+):
+
     q = update.callback_query
-    uid = q.from_user.id
+
     await q.answer()
 
-    if not is_allowed(uid):
-        await q.edit_message_text("❌ اشتراک منقضی شده. /start بزن")
-        return
 
-    state[uid] = {"type": q.data, "step": "id"}
-    await q.edit_message_text("🆔 آیدی یا لینک هدف را بفرست:")
 
-# ----------------------------
+    data = {
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    text = update.message.text.strip()
+        "plan7":
+        ("VIP 7 Days","2 TON"),
 
-    # ---- Enter Subscription Code ----
-    if uid in state and state[uid].get("step") == "code":
-        if text not in CODES:
-            await update.message.reply_text("❌ کد اشتباه است")
-            return
+        "plan15":
+        ("VIP 15 Days","3.5 TON"),
 
-        if text == "Devexi-test" and uid in used_test:
-            await update.message.reply_text("❌ تست قبلاً استفاده شده")
-            return
+        "plan30":
+        ("VIP 30 Days","5 TON")
 
-        current = users.get(uid, 0)
-        new_expire = extend_expire(current, CODES[text])
-        users[uid] = new_expire.timestamp()
+    }
 
-        if text == "Devexi-test":
-            used_test.add(uid)
 
-        del state[uid]
-        await update.message.reply_text(
-            f"✅ اشتراک فعال شد\n"
-            f"⏳ اعتبار تا: {new_expire.strftime('%Y-%m-%d %H:%M')}\n\n"
-            "/start"
-        )
-        return
+    plan,price = data[q.data]
 
-    if uid not in state:
-        return
 
-    s = state[uid]
+    context.user_data["plan"] = plan
+    context.user_data["price"] = price
 
-    # ---- Anti-Spam ----
-    now = time.time()
-    report_count.setdefault(uid, [])
-    report_count[uid] = [t for t in report_count[uid] if now - t < 3600]
-    if len(report_count[uid]) >= 3:
-        await update.message.reply_text("🚫 بیش از حد گزارش داده‌اید")
-        return
 
-    # ---- Reporting Flow ----
-    if s["step"] == "id":
-        s["target"] = text
-        s["step"] = "reason"
-        await update.message.reply_text("📝 توضیح تخلف را بنویس:")
 
-    elif s["step"] == "reason":
-        s["reason"] = text
-        await update.message.reply_text("📡 گزارش در حال ارسال... لطفا منتظر باشید")
+    keyboard=[
 
-        # Threat level
-        risk = "Low"
-        for w in ["terror", "bomb", "isis", "child", "rape", "drug", "fraud"]:
-            if w in text.lower():
-                risk = "Critical"
-                break
+        [
 
-        # Ticket & trust
-        ticket = f"DX-{random.randint(10000,99999)}"
-        trust_score[uid] = trust_score.get(uid, 0) + 1
-        report_count[uid].append(now)
-
-        # Target counter
-        targets[s["target"]] = targets.get(s["target"], 0) + 1
-        count = targets[s["target"]]
-
-        # SpamBot packet
-        packet = (
-            f"Abuse Report\n\n"
-            f"Target: {s['target']}\n"
-            f"Category: {s['type']}\n"
-            f"Description: {s['reason']}\n"
-            f"Reports: {count}\n"
-            f"Case: {ticket}"
+        InlineKeyboardButton(
+            "✅ پرداخت کردم",
+            callback_data="paid"
         )
 
-        spambot = build_spambot_link(packet)
+        ]
+
+    ]
+
+
+
+    await q.edit_message_text(
+
+f"""
+💎 <b>Payment Info</b>
+
+
+📦 سرویس:
+<b>{plan}</b>
+
+
+💰 مبلغ:
+<b>{price}</b>
+
+
+💳 Wallet:
+
+<code>{WALLET}</code>
+
+
+بعد از پرداخت روی گزینه زیر بزنید.
+""",
+
+parse_mode="HTML",
+
+reply_markup=InlineKeyboardMarkup(keyboard)
+
+)
+
+# ==========================
+# USER PAYMENT BUTTON
+# ==========================
+
+async def paid(
+    update:Update,
+    context:ContextTypes.DEFAULT_TYPE
+):
+
+    q = update.callback_query
+
+    await q.answer()
+
+
+    user = q.from_user
+
+
+    plan = context.user_data.get(
+        "plan",
+        "Unknown"
+    )
+
+
+    price = context.user_data.get(
+        "price",
+        "Unknown"
+    )
+
+
+    username = (
+        user.username
+        if user.username
+        else "NoUsername"
+    )
+
+
+
+    cursor.execute(
+
+"""
+INSERT INTO orders
+(user_id,username,plan,price,port,status)
+
+VALUES (?,?,?,?,?,?)
+""",
+
+(
+    user.id,
+    username,
+    plan,
+    price,
+    "",
+    "pending"
+)
+
+)
+
+    db.commit()
+
+
+
+    order_id = cursor.lastrowid
+
+
+
+    await q.edit_message_text(
+
+f"""
+✅ <b>سفارش شما ثبت شد</b>
+
+
+📦 سرویس:
+<b>{plan}</b>
+
+
+💰 مبلغ:
+<b>{price}</b>
+
+
+🆔 شماره سفارش:
+<code>{order_id}</code>
+
+
+⏳ وضعیت:
+در انتظار تایید ادمین
+
+
+🛡️ بعد از بررسی پرداخت، پورت برای شما ارسال می‌شود.
+""",
+
+parse_mode="HTML"
+
+)
+
+
+
+    admin_keyboard = [
+
+        [
+
+        InlineKeyboardButton(
+            "✅ تایید سفارش",
+            callback_data=f"accept_{order_id}"
+        )
+
+        ],
+
+        [
+
+        InlineKeyboardButton(
+            "❌ رد سفارش",
+            callback_data=f"reject_{order_id}"
+        )
+
+        ]
+
+    ]
+
+
+
+    await context.bot.send_message(
+
+        chat_id=ADMIN_ID,
+
+        text=f"""
+
+🚨 <b>سفارش جدید</b>
+
+
+👤 کاربر:
+{user.first_name}
+
+
+🆔 ID:
+<code>{user.id}</code>
+
+
+🔗 Username:
+@{username}
+
+
+📦 پلن:
+<b>{plan}</b>
+
+
+💰 قیمت:
+<b>{price}</b>
+
+
+🆔 سفارش:
+{order_id}
+
+""",
+
+parse_mode="HTML",
+
+reply_markup=InlineKeyboardMarkup(
+    admin_keyboard
+)
+
+)
+
+
+
+# ==========================
+# ADMIN PANEL
+# ==========================
+
+async def admin_action(
+    update:Update,
+    context:ContextTypes.DEFAULT_TYPE
+):
+
+    q = update.callback_query
+
+    await q.answer()
+
+
+    if q.from_user.id != ADMIN_ID:
+
+        return
+
+
+
+    data = q.data.split("_")
+
+
+    action = data[0]
+
+    order_id = data[1]
+
+
+
+    order = cursor.execute(
+
+"""
+SELECT *
+FROM orders
+WHERE id=?
+
+""",
+
+(order_id,)
+
+).fetchone()
+
+
+
+    if not order:
+
+        await q.edit_message_text(
+            "❌ سفارش پیدا نشد"
+        )
+
+        return
+
+
+
+    user_id = order[1]
+
+    plan = order[3]
+
+
+
+    # ==================
+    # ACCEPT
+    # ==================
+
+    if action == "accept":
+
+
+        port = generate_port()
+
+
+
+        cursor.execute(
+
+"""
+UPDATE orders
+
+SET port=?,
+status=?
+
+WHERE id=?
+
+""",
+
+(
+port,
+"active",
+order_id
+)
+
+)
+
+        db.commit()
+
+
 
         await context.bot.send_message(
-            ADMIN_GROUP,
-            "🚨 Devex-i Abuse Case\n\n"
-            f"🎫 {ticket}\n"
-            f"⚠️ {risk}\n"
-            f"🎯 {s['target']}\n"
-            f"📊 Reports: {count}\n"
-            f"📂 {s['type']}\n"
-            f"📝 {s['reason']}\n\n"
-            f"📨 Send to Telegram:\n{spambot}"
+
+            chat_id=user_id,
+
+
+            text=f"""
+
+✅ <b>پرداخت تایید شد</b>
+
+
+💎 سرویس:
+<b>{plan}</b>
+
+
+🔑 پورت شما:
+
+<code>{port}</code>
+
+
+⚡ سرویس شما فعال شد.
+
+""",
+
+parse_mode="HTML"
+
+)
+
+
+
+        await q.edit_message_text(
+
+f"""
+✅ سفارش تایید شد
+
+
+🆔 سفارش:
+{order_id}
+
+
+🔑 پورت ساخته شد:
+
+<code>{port}</code>
+""",
+
+parse_mode="HTML"
+
+)
+
+
+
+
+    # ==================
+    # REJECT
+    # ==================
+
+    elif action == "reject":
+
+
+        cursor.execute(
+
+"""
+UPDATE orders
+
+SET status=?
+
+WHERE id=?
+
+""",
+
+(
+"rejected",
+order_id
+)
+
+)
+
+        db.commit()
+
+
+
+        await context.bot.send_message(
+
+            chat_id=user_id,
+
+            text="""
+
+❌ سفارش شما رد شد.
+
+در صورت اشتباه، با پشتیبانی تماس بگیرید.
+
+"""
+
         )
 
-        await update.message.reply_text(f"✅ ارسال شد\nTicket: {ticket}")
-        del state[uid]
 
-# ----------------------------
 
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(choose))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        await q.edit_message_text(
 
-print("Devex-i running…")
-app.run_polling()
+f"""
+
+❌ سفارش رد شد
+
+
+🆔 سفارش:
+{order_id}
+
+"""
+
+)
+
+
+
+
+
+# ==========================
+# RUN
+# ==========================
+
+def main():
+
+    app = Application.builder().token(
+        BOT_TOKEN
+    ).build()
+
+
+
+    app.add_handler(
+
+        CommandHandler(
+            "start",
+            start
+        )
+
+    )
+
+
+
+    app.add_handler(
+
+        CallbackQueryHandler(
+            select_plan,
+            pattern="^(plan7|plan15|plan30)$"
+        )
+
+    )
+
+
+
+    app.add_handler(
+
+        CallbackQueryHandler(
+            paid,
+            pattern="^paid$"
+        )
+
+    )
+
+
+
+    app.add_handler(
+
+        CallbackQueryHandler(
+            admin_action,
+            pattern="^(accept|reject)_"
+        )
+
+    )
+
+
+
+    print("💎 Premium Bot Started")
+
+    app.run_polling()
+
+
+
+if __name__ == "__main__":
+
+    main()
